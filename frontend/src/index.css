@@ -10,3 +10,18 @@ body {
   background: #f5f4f0;
   color: #1a1a1a;
 }
+
+.piece-white,
+.piece-black {
+  -webkit-text-stroke: 2px #1a1a1a;
+  paint-order: stroke fill;
+}
+
+.piece-white {
+  color: #fafafa;
+}
+
+.piece-black {
+  color: #1a1a1a;
+  -webkit-text-stroke: 2px #fafafa;
+}

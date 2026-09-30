@@ -12,6 +12,8 @@ const PALETTE: { type: PieceSymbol; color: Color }[] = [
   { type: 'b', color: 'w' }, { type: 'n', color: 'w' }, { type: 'p', color: 'w' },
 ]
 
+type Mode = 'setup' | 'auto' | 'free'
+
 interface HistoryEntry {
   fen: string
   san?: string
@@ -19,9 +21,18 @@ interface HistoryEntry {
   lastMove?: { from: string; to: string }
 }
 
+interface Suggestion {
+  from: Square
+  to: Square
+  piece: { type: string; color: string }
+}
+
 export default function App() {
+  const [mode, setMode] = useState<Mode>('setup')
   const [history, setHistory] = useState<HistoryEntry[]>([{ fen: START_FEN }])
   const [index, setIndex] = useState(0)
+  const [freeFen, setFreeFen] = useState(START_FEN)
+  const [suggestion, setSuggestion] = useState<Suggestion | null>(null)
   const [selectedPiece, setSelectedPiece] = useState<{ type: PieceSymbol; color: Color } | 'erase' | null>(null)
   const [flipped, setFlipped] = useState(false)
   const [sideOverride, setSideOverride] = useState<Color | null>(null)
@@ -29,33 +40,36 @@ export default function App() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const current = history[index]
+  const liveFen = mode === 'free' ? freeFen : history[index].fen
   const atFrontier = index === history.length - 1
-  const started = history.length > 1
+  const lastMove = mode === 'free' ? undefined : history[index].lastMove
+  const sanInfo = mode === 'free' ? undefined : history[index]
 
   const game = useMemo(() => {
     const g = new Chess()
-    g.load(current.fen, { skipValidation: true })
+    g.load(liveFen, { skipValidation: true })
     return g
-  }, [current.fen])
+  }, [liveFen])
 
   const effectiveSide = sideOverride ?? game.turn()
 
   useEffect(() => {
-    setFenInput(current.fen)
-  }, [current.fen])
+    setFenInput(liveFen)
+  }, [liveFen])
 
   function applyFen(fen: string) {
     setHistory([{ fen }])
     setIndex(0)
+    setFreeFen(fen)
     setFenInput(fen)
     setError(null)
+    setSuggestion(null)
   }
 
   function handleSquareClick(square: Square) {
-    if (started) return
+    if (mode !== 'setup') return
     const g = new Chess()
-    g.load(current.fen, { skipValidation: true })
+    g.load(liveFen, { skipValidation: true })
     if (selectedPiece === 'erase') {
       g.remove(square)
     } else if (selectedPiece) {
@@ -65,13 +79,14 @@ export default function App() {
     }
     const fen = g.fen()
     setHistory([{ fen }])
+    setFreeFen(fen)
     setFenInput(fen)
   }
 
   function setBoardTurn(color: Color) {
     setSideOverride(color)
     const g = new Chess()
-    g.load(current.fen, { skipValidation: true })
+    g.load(liveFen, { skipValidation: true })
     const parts = g.fen().split(' ')
     parts[1] = color
     applyFen(parts.join(' '))
@@ -80,7 +95,7 @@ export default function App() {
 
   function toggleCastling(letter: 'K' | 'Q' | 'k' | 'q') {
     const g = new Chess()
-    g.load(current.fen, { skipValidation: true })
+    g.load(liveFen, { skipValidation: true })
     const parts = g.fen().split(' ')
     let rights = parts[2] === '-' ? '' : parts[2]
     rights = rights.includes(letter) ? rights.replace(letter, '') : rights + letter
@@ -91,16 +106,18 @@ export default function App() {
   }
 
   function reset() {
+    setMode('setup')
     setSideOverride(null)
     applyFen(START_FEN)
   }
 
   function kingsOnly() {
+    setMode('setup')
     setSideOverride(null)
     applyFen('8/8/8/4k3/8/4K3/8/8 w - - 0 1')
   }
 
-  async function requestMove(fen: string) {
+  async function requestAutoMove(fen: string) {
     setLoading(true)
     setError(null)
     try {
@@ -126,9 +143,13 @@ export default function App() {
     }
   }
 
-  async function handlePlayOrMove() {
+  async function handleAutoButton() {
+    if (mode !== 'auto') {
+      setMode('auto')
+      setSuggestion(null)
+    }
     if (atFrontier) {
-      await requestMove(current.fen)
+      await requestAutoMove(liveFen)
     } else {
       setIndex((i) => i + 1)
     }
@@ -138,22 +159,72 @@ export default function App() {
     if (index > 0) setIndex((i) => i - 1)
   }
 
+  function startFreePlay() {
+    setMode('free')
+    setFreeFen(liveFen)
+    setSuggestion(null)
+  }
+
+  async function handleFreeDrop(from: Square, to: Square) {
+    const g = new Chess()
+    g.load(freeFen, { skipValidation: true })
+    const moved = g.get(from)
+    if (!moved) return
+    g.remove(from)
+    g.remove(to)
+    g.put(moved, to)
+    const newFen = g.fen()
+    setFreeFen(newFen)
+    setSuggestion(null)
+
+    const otherSide: Color = moved.color === 'w' ? 'b' : 'w'
+    const parts = newFen.split(' ')
+    parts[1] = otherSide
+    const suggestionFen = parts.join(' ')
+
+    setLoading(true)
+    setError(null)
+    try {
+      const result = await fetchNextMove(suggestionFen)
+      if (result.game_over || !result.move_uci) {
+        setError(result.result ? `game over, result ${result.result}` : 'no move available')
+        return
+      }
+      const from2 = result.move_uci.slice(0, 2) as Square
+      const to2 = result.move_uci.slice(2, 4) as Square
+      const sg = new Chess()
+      sg.load(suggestionFen, { skipValidation: true })
+      const piece = sg.get(from2)
+      if (piece) {
+        setSuggestion({ from: from2, to: to2, piece })
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'request failed')
+    } finally {
+      setLoading(false)
+    }
+  }
+
   const statusText = loading
     ? 'thinking'
     : error
       ? error
-      : started
-        ? atFrontier
-          ? 'ready for the next move'
-          : 'viewing an earlier position'
-        : 'set up a position and press play'
+      : mode === 'free'
+        ? suggestion
+          ? 'suggestion shown for the other side'
+          : 'move a piece, either side'
+        : mode === 'auto'
+          ? atFrontier
+            ? 'ready for the next move'
+            : 'viewing an earlier position'
+          : 'set up a position, then press auto or play'
 
   return (
     <div className="min-h-screen flex flex-col items-center gap-8 py-10 px-4">
       <h1 className="text-2xl font-semibold">chess analysis board</h1>
       <div className="flex flex-col lg:flex-row gap-10">
         <div>
-          {!started && (
+          {mode === 'setup' && (
             <div className="flex gap-1 mb-3 items-center">
               {PALETTE.map((p) => (
                 <button
@@ -179,8 +250,11 @@ export default function App() {
           <Board
             board={game.board()}
             flipped={flipped}
+            draggable={mode === 'free'}
             onSquareClick={handleSquareClick}
-            lastMove={current.lastMove}
+            onPieceDrop={mode === 'free' ? handleFreeDrop : undefined}
+            lastMove={lastMove}
+            suggestion={suggestion}
           />
         </div>
 
@@ -189,25 +263,36 @@ export default function App() {
 
           <div className="flex gap-2">
             <button
-              onClick={handlePlayOrMove}
-              disabled={loading}
+              onClick={handleAutoButton}
+              disabled={loading || mode === 'free'}
               className="px-4 py-2 bg-blue-600 text-white disabled:opacity-50"
             >
-              {started ? 'move' : 'play'}
+              {mode === 'auto' ? 'move' : 'auto'}
             </button>
-            <button
-              onClick={handleBack}
-              disabled={index === 0}
-              className="px-4 py-2 border border-neutral-400 disabled:opacity-50"
-            >
-              back
-            </button>
+            {mode === 'auto' && (
+              <button
+                onClick={handleBack}
+                disabled={index === 0}
+                className="px-4 py-2 border border-neutral-400 disabled:opacity-50"
+              >
+                back
+              </button>
+            )}
+            {mode !== 'free' && (
+              <button
+                onClick={startFreePlay}
+                disabled={loading}
+                className="px-4 py-2 bg-emerald-600 text-white disabled:opacity-50"
+              >
+                play
+              </button>
+            )}
           </div>
 
-          {current.san && (
+          {sanInfo?.san && (
             <div className="text-sm">
-              last move <span className="font-mono">{current.san}</span>
-              {current.confidence !== undefined && ` at ${(current.confidence * 100).toFixed(0)}% confidence`}
+              last move <span className="font-mono">{sanInfo.san}</span>
+              {sanInfo.confidence !== undefined && ` at ${(sanInfo.confidence * 100).toFixed(0)}% confidence`}
             </div>
           )}
 
@@ -237,7 +322,7 @@ export default function App() {
                   key={letter}
                   onClick={() => toggleCastling(letter)}
                   className={`w-8 h-8 border ${
-                    current.fen.split(' ')[2]?.includes(letter) ? 'border-blue-500' : 'border-neutral-300'
+                    liveFen.split(' ')[2]?.includes(letter) ? 'border-blue-500' : 'border-neutral-300'
                   }`}
                 >
                   {letter}
@@ -261,9 +346,10 @@ export default function App() {
                 try {
                   const g = new Chess()
                   g.load(fenInput)
+                  setMode('setup')
                   applyFen(fenInput)
                 } catch {
-                  setFenInput(current.fen)
+                  setFenInput(liveFen)
                 }
               }}
               className="w-full border border-neutral-300 px-2 py-1 text-xs font-mono"
