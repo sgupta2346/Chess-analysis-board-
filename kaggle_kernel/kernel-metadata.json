@@ -1,0 +1,13 @@
+{
+  "id": "sjgupta/chess-move-predictor-train",
+  "title": "chess-move-predictor-train",
+  "code_file": "train_kaggle.py",
+  "language": "python",
+  "kernel_type": "script",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_internet": false,
+  "dataset_sources": ["sjgupta/lichess-2000-2300-rated-moves", "sjgupta/python-chess-offline"],
+  "competition_sources": [],
+  "kernel_sources": []
+}

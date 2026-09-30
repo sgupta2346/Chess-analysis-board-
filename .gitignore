@@ -11,3 +11,8 @@ data/*.jsonl
 data/*.zst
 models/*.pt
 models/*.onnx
+kaggle_dataset/
+kaggle_wheel_dataset/
+kaggle_output/
+kaggle_pull.log
+*.tar.gz
