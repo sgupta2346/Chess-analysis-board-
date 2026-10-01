@@ -3,7 +3,8 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8130'
 export interface NextMoveResponse {
   move_uci?: string
   move_san?: string
-  confidence?: number
+  elo?: number
+  escalated?: boolean
   fen_after?: string
   game_over: boolean
   result?: string
