@@ -43,19 +43,32 @@ export default function Board({
   suggestion,
 }: BoardProps) {
   const [dragFrom, setDragFrom] = useState<Square | null>(null)
+  const [dragPiece, setDragPiece] = useState<PieceInfo | null>(null)
+  const [cursor, setCursor] = useState({ x: 0, y: 0 })
 
   useEffect(() => {
     if (!dragFrom) return
-    const clear = () => setDragFrom(null)
+    const move = (e: MouseEvent) => setCursor({ x: e.clientX, y: e.clientY })
+    const clear = () => {
+      setDragFrom(null)
+      setDragPiece(null)
+    }
+    window.addEventListener('mousemove', move)
     window.addEventListener('mouseup', clear)
-    return () => window.removeEventListener('mouseup', clear)
+    return () => {
+      window.removeEventListener('mousemove', move)
+      window.removeEventListener('mouseup', clear)
+    }
   }, [dragFrom])
 
   const ranks = flipped ? [0, 1, 2, 3, 4, 5, 6, 7] : [7, 6, 5, 4, 3, 2, 1, 0]
   const files = flipped ? [...FILES].reverse() : FILES
 
-  function handleMouseDown(square: Square, hasPiece: boolean) {
-    if (draggable && hasPiece) setDragFrom(square)
+  function handleMouseDown(e: React.MouseEvent, square: Square, piece: PieceInfo | null) {
+    if (!draggable || !piece) return
+    setDragFrom(square)
+    setDragPiece(piece)
+    setCursor({ x: e.clientX, y: e.clientY })
   }
 
   function handleMouseUp(square: Square) {
@@ -63,53 +76,57 @@ export default function Board({
       onPieceDrop(dragFrom, square)
     }
     setDragFrom(null)
+    setDragPiece(null)
   }
 
   return (
-    <div
-      className="inline-block border border-neutral-400"
-      onMouseLeave={() => setDragFrom(null)}
-    >
-      {ranks.map((rankIdx) => (
-        <div key={rankIdx} className="flex">
-          {files.map((file, fileIdx) => {
-            const actualFileIdx = flipped ? 7 - fileIdx : fileIdx
-            const square = `${file}${rankIdx + 1}` as Square
-            const piece = board[rankIdx][actualFileIdx]
-            const isDark = (rankIdx + actualFileIdx) % 2 === 0
-            const isLastMove = lastMove && (lastMove.from === square || lastMove.to === square)
-            const isSuggestionFrom = suggestion && suggestion.from === square
-            const isSuggestionTo = suggestion && suggestion.to === square
-            const isDragSource = dragFrom === square
-
-            return (
-              <div
-                key={square}
-                onMouseDown={() => handleMouseDown(square, !!piece)}
-                onMouseUp={() => handleMouseUp(square)}
-                onClick={() => onSquareClick?.(square)}
-                className={`w-24 h-24 flex items-center justify-center text-7xl select-none relative
-                  ${isDark ? 'bg-[#b58863]' : 'bg-[#f0d9b5]'}
-                  ${draggable && piece ? 'cursor-grab active:cursor-grabbing' : ''}
-                  ${isLastMove ? 'ring-4 ring-inset ring-yellow-400' : ''}
-                  ${isSuggestionFrom ? 'ring-4 ring-inset ring-sky-500' : ''}
-                  ${isSuggestionTo ? 'ring-4 ring-inset ring-sky-400' : ''}`}
-              >
-                {piece && (
-                  <div style={{ opacity: isDragSource ? 0.4 : 1 }}>
-                    <Piece piece={piece} />
-                  </div>
-                )}
-                {isSuggestionTo && suggestion && (
-                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                    <Piece piece={suggestion.piece} ghost />
-                  </div>
-                )}
-              </div>
-            )
-          })}
+    <>
+      {dragPiece && (
+        <div
+          className="fixed pointer-events-none z-50 text-7xl"
+          style={{ left: cursor.x - 48, top: cursor.y - 48 }}
+        >
+          <Piece piece={dragPiece} />
         </div>
-      ))}
-    </div>
+      )}
+      <div className="inline-block border border-neutral-400">
+        {ranks.map((rankIdx) => (
+          <div key={rankIdx} className="flex">
+            {files.map((file, fileIdx) => {
+              const actualFileIdx = flipped ? 7 - fileIdx : fileIdx
+              const square = `${file}${rankIdx + 1}` as Square
+              const piece = board[rankIdx][actualFileIdx]
+              const isDark = (rankIdx + actualFileIdx) % 2 === 0
+              const isLastMove = lastMove && (lastMove.from === square || lastMove.to === square)
+              const isSuggestionFrom = suggestion && suggestion.from === square
+              const isSuggestionTo = suggestion && suggestion.to === square
+              const isDragSource = dragFrom === square
+
+              return (
+                <div
+                  key={square}
+                  onMouseDown={(e) => handleMouseDown(e, square, piece)}
+                  onMouseUp={() => handleMouseUp(square)}
+                  onClick={() => onSquareClick?.(square)}
+                  className={`w-24 h-24 flex items-center justify-center text-7xl select-none relative
+                    ${isDark ? 'bg-[#b58863]' : 'bg-[#f0d9b5]'}
+                    ${draggable && piece ? 'cursor-grab active:cursor-grabbing' : ''}
+                    ${isLastMove ? 'ring-4 ring-inset ring-yellow-400' : ''}
+                    ${isSuggestionFrom ? 'ring-4 ring-inset ring-sky-500' : ''}
+                    ${isSuggestionTo ? 'ring-4 ring-inset ring-sky-400' : ''}`}
+                >
+                  {piece && !isDragSource && <Piece piece={piece} />}
+                  {isSuggestionTo && suggestion && (
+                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                      <Piece piece={suggestion.piece} ghost />
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        ))}
+      </div>
+    </>
   )
 }
